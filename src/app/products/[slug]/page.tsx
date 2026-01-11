@@ -1,5 +1,3 @@
-export const revalidate = 3600;
-
 import Layout from '@/components/Layout'
 import ProductDetailClient from '@/components/ProductDetailClient'
 import { db } from '@/lib/db'
@@ -34,10 +32,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ slug
     try {
       return await db.product.findUnique({
         where: { slug },
-        include: { 
-          category: true,
-          brandRelation: true
-        },
+        include: { category: true },
       })
     } catch (e) {
       console.error('Failed to load product:', e)
@@ -64,8 +59,7 @@ export default async function ProductDetail({ params }: { params: Promise<{ slug
   const bullets = Array.isArray(parsedBullets) ? parsedBullets : []
 
   type VariantGroup = { name: string; options: string[] }
-  // 优先使用关联品牌的名称，回退到旧字段
-  const brand = (product as any).brandRelation?.name ?? product.brand ?? null
+  const brand = product.brand ?? null
   const upc = product.upc ?? null
   const publishedAt = product.publishedAt ?? null
   const variantGroups = parseJson<VariantGroup[]>(product.variants, [])
