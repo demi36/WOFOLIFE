@@ -13,6 +13,7 @@ export async function GET(
       },
       include: {
         category: true,
+        brandRelation: true,
       },
     })
 
@@ -71,6 +72,7 @@ export async function PUT(
       featured,
       inStock,
       brand,
+      brandId,
       upc,
       publishedAt,
       variants,
@@ -95,8 +97,9 @@ export async function PUT(
       categoryId: categoryId || undefined,
       featured: featured || false,
       active: inStock !== false,
-      brand: brand ?? undefined,
-      upc: upc ?? undefined,
+      brand: brand === '' ? null : brand,
+      brandId: brandId === '' ? null : brandId,
+      upc: upc === '' ? null : upc,
       publishedAt: publishedAt ? new Date(publishedAt) : undefined,
       variants: (() => {
         try {
@@ -203,6 +206,13 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
+    // Delete related reviews first (cascade delete logic)
+    await db.productReview.deleteMany({
+      where: {
+        productId: id,
+      },
+    })
+
     await db.product.delete({
       where: {
         id,

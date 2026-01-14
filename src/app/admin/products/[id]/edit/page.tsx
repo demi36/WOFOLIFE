@@ -28,6 +28,7 @@ interface Product {
   bulletPoints: string[]
   amazonUrl: string
   categoryId?: string
+  brandId?: string
   featured: boolean
   inStock: boolean
   brand?: string
@@ -48,6 +49,7 @@ interface ProductForm {
   bulletPoints: string[]
   amazonUrl: string
   categoryId: string
+  brandId: string
   featured: boolean
   inStock: boolean
   showBuyOnAmazon: boolean
@@ -65,6 +67,7 @@ interface VariantGroup { name: string; options: string[] }
 
 // 新增：分类类型
 interface Category { id: string; name: string; slug: string }
+interface Brand { id: string; name: string; slug: string }
 
 interface Review {
   id: string
@@ -132,6 +135,8 @@ export default function EditProduct() {
   const router = useRouter()
   const params = useParams()
   const productId = params.id as string
+  const MAX_IMAGE_BYTES = 4 * 1024 * 1024
+  const tooLargeMessage = '上传失败：图片不能大于4MB'
 
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(true)
@@ -142,9 +147,10 @@ export default function EditProduct() {
     price: '',
     originalPrice: '',
     images: [''],
-    bulletPoints: ['', '', '', '', ''],
+    bulletPoints: ['', '', '', '', '', '', '', ''],
     amazonUrl: '',
     categoryId: '',
+    brandId: '',
     featured: false,
     inStock: true,
     showBuyOnAmazon: true,
@@ -160,6 +166,7 @@ export default function EditProduct() {
   // 新增：分类状态
   const [categories, setCategories] = useState<Category[]>([])
   const [catLoading, setCatLoading] = useState(true)
+  const [brands, setBrands] = useState<Brand[]>([])
   const [urlError, setUrlError] = useState<string>('')
   // 上传状态：按索引标记（简化处理）
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null)
@@ -176,13 +183,21 @@ export default function EditProduct() {
   const handleDescImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > MAX_IMAGE_BYTES) {
+      alert(tooLargeMessage)
+      e.target.value = ''
+      return
+    }
 
     setDescUploading(true)
     try {
       const fd = new FormData()
       fd.append('file', file)
       const res = await fetch('/api/upload', { method: 'POST', body: fd })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        if (res.status === 413) throw new Error(tooLargeMessage)
+        throw new Error(`HTTP ${res.status}`)
+      }
       const data = await res.json()
       const url = data?.url
       
@@ -210,7 +225,7 @@ export default function EditProduct() {
       }
     } catch (e) {
       console.error('上传描述图片失败:', e)
-      alert('上传图片失败，请重试')
+      alert((e instanceof Error && e.message === tooLargeMessage) ? tooLargeMessage : '上传图片失败，请重试')
     } finally {
       setDescUploading(false)
       e.target.value = ''
@@ -260,12 +275,19 @@ export default function EditProduct() {
     )
   }
   const handleUpload = async (index: number, file: File) => {
+    if (file.size > MAX_IMAGE_BYTES) {
+      alert(tooLargeMessage)
+      return
+    }
     setUploadingIndex(index)
     try {
       const fd = new FormData()
       fd.append('file', file)
       const res = await fetch('/api/upload', { method: 'POST', body: fd })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        if (res.status === 413) throw new Error(tooLargeMessage)
+        throw new Error(`HTTP ${res.status}`)
+      }
       const data = await res.json()
       const url = data?.url
       if (typeof url === 'string' && url.length > 0) {
@@ -277,7 +299,7 @@ export default function EditProduct() {
       }
     } catch (e) {
       console.error('上传失败:', e)
-      alert('上传失败，请稍后重试')
+      alert((e instanceof Error && e.message === tooLargeMessage) ? tooLargeMessage : '上传失败，请稍后重试')
     } finally {
       setUploadingIndex(null)
     }
@@ -285,6 +307,10 @@ export default function EditProduct() {
 
   const handleBulkUpload = async (files: FileList) => {
     if (!files || files.length === 0) return
+    if (Array.from(files).some(f => f.size > MAX_IMAGE_BYTES)) {
+      alert(tooLargeMessage)
+      return
+    }
     setBulkUploading(true)
     try {
       const urls: string[] = []
@@ -292,7 +318,10 @@ export default function EditProduct() {
         const fd = new FormData()
         fd.append('file', file)
         const res = await fetch('/api/upload', { method: 'POST', body: fd })
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        if (!res.ok) {
+          if (res.status === 413) throw new Error(tooLargeMessage)
+          throw new Error(`HTTP ${res.status}`)
+        }
         const data = await res.json()
         const url = data?.url
         if (typeof url === 'string' && url.length > 0) {
@@ -307,7 +336,7 @@ export default function EditProduct() {
       setHasChanges(true)
     } catch (e) {
       console.error('批量上传失败:', e)
-      alert('批量上传失败，请稍后重试')
+      alert((e instanceof Error && e.message === tooLargeMessage) ? tooLargeMessage : '批量上传失败，请稍后重试')
     } finally {
       setBulkUploading(false)
     }
@@ -332,22 +361,35 @@ export default function EditProduct() {
     fetchProduct()
   }, [productId])
 
-  // 新增：加载分类列表
+  // 新增：加载分类和品牌列表
   useEffect(() => {
-    const loadCategories = async () => {
+    const loadData = async () => {
       try {
-        const res = await fetch('/api/categories', { cache: 'no-store' })
-        if (res.ok) {
-          const data = await res.json()
-          setCategories(Array.isArray(data) ? data : [])
+        const [catRes, brandRes] = await Promise.all([
+          fetch('/api/categories', { cache: 'no-store' }),
+          fetch('/api/brands', { cache: 'no-store' })
+        ])
+        if (catRes.ok) {
+          const data = await catRes.json()
+          const normalized = Array.isArray(data)
+            ? data.map((c: any) => ({ ...c, id: String(c?.id ?? '') })).filter((c: any) => c.id)
+            : []
+          setCategories(normalized)
+        }
+        if (brandRes.ok) {
+          const data = await brandRes.json()
+          const normalized = Array.isArray(data)
+            ? data.map((b: any) => ({ ...b, id: String(b?.id ?? '') })).filter((b: any) => b.id)
+            : []
+          setBrands(normalized)
         }
       } catch (e) {
-        console.error('加载分类失败:', e)
+        console.error('加载基础数据失败:', e)
       } finally {
         setCatLoading(false)
       }
     }
-    loadCategories()
+    loadData()
   }, [])
 
   const fetchProduct = async () => {
@@ -356,6 +398,7 @@ export default function EditProduct() {
       if (response.ok) {
         const data = await response.json()
         setProduct(data)
+        const toId = (v: any): string => (v === null || v === undefined) ? '' : String(v)
         
         const toLocalInput = (dt: string | Date | null | undefined): string => {
           if (!dt) return ''
@@ -373,10 +416,11 @@ export default function EditProduct() {
           originalPrice: data.originalPrice?.toString() || '',
           images: Array.isArray(data.images) && data.images.length > 0 ? data.images : [''],
           bulletPoints: Array.isArray(data.bulletPoints)
-            ? Array.from({ length: 5 }, (_, i) => (data.bulletPoints[i] ?? ''))
-            : ['', '', '', '', ''],
+            ? Array.from({ length: 8 }, (_, i) => (data.bulletPoints[i] ?? ''))
+            : ['', '', '', '', '', '', '', ''],
           amazonUrl: data.amazonUrl || '',
-          categoryId: data.categoryId || '',
+          categoryId: toId(data.categoryId),
+          brandId: toId(data.brandId || data.brandRelation?.id),
           featured: data.featured || false,
           inStock: data.inStock !== false,
           showBuyOnAmazon: data.showBuyOnAmazon !== false,
@@ -464,10 +508,17 @@ export default function EditProduct() {
 
   const uploadReviewImage = async (index: number, file: File, isEdit: boolean) => {
     try {
+      if (file.size > MAX_IMAGE_BYTES) {
+        alert(tooLargeMessage)
+        return
+      }
       const fd = new FormData()
       fd.append('file', file)
       const res = await fetch('/api/upload', { method: 'POST', body: fd })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        if (res.status === 413) throw new Error(tooLargeMessage)
+        throw new Error(`HTTP ${res.status}`)
+      }
       const data = await res.json()
       const url = data?.url
       if (typeof url === 'string' && url.length > 0) {
@@ -476,7 +527,7 @@ export default function EditProduct() {
       }
     } catch (e) {
       console.error('上传失败:', e)
-      alert('上传失败，请稍后重试')
+      alert((e instanceof Error && e.message === tooLargeMessage) ? tooLargeMessage : '上传失败，请稍后重试')
     }
   }
 
@@ -583,7 +634,7 @@ export default function EditProduct() {
           price: parseFloat(form.price),
           originalPrice: form.originalPrice ? parseFloat(form.originalPrice) : null,
           images: (Array.isArray(form.images) ? form.images : ['']).filter(img => img.trim() !== ''),
-          bulletPoints: Array.from({ length: 5 }, (_, i) => ((Array.isArray(form.bulletPoints) ? form.bulletPoints[i] : '') ?? '').trim()),
+          bulletPoints: Array.from({ length: 8 }, (_, i) => ((Array.isArray(form.bulletPoints) ? form.bulletPoints[i] : '') ?? '').trim()),
           brand: (form.brand ?? '').trim() || null,
           upc: (form.upc ?? '').trim() || null,
           publishedAt: form.publishedAt ? new Date(form.publishedAt).toISOString() : null,
@@ -727,19 +778,6 @@ export default function EditProduct() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  品牌名
-                </label>
-                <input
-                  type="text"
-                  value={form.brand || ''}
-                  onChange={(e) => setForm(prev => ({ ...prev, brand: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="例如：Apple、Sony、Nike"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
                   UPC（可选）
                 </label>
                 <input
@@ -782,6 +820,41 @@ export default function EditProduct() {
                 </select>
                 {!catLoading && categories.length === 0 && (
                   <p className="text-xs text-red-600 mt-1">暂无分类，请先执行重置数据或在数据库中创建分类。</p>
+                )}
+              </div>
+
+              {/* 新增：品牌选择 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  所属品牌 (可选)
+                </label>
+                <select
+                  value={form.brandId || ''}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    const selected = brands.find(b => String(b.id) === val)
+                    setForm(prev => {
+                      if (!val) {
+                         return { ...prev, brandId: '', brand: '' }
+                      }
+                      return { 
+                        ...prev, 
+                        brandId: val,
+                        brand: selected ? selected.name : ''
+                      }
+                    })
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">-- 不选择品牌 --</option>
+                  {brands.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+                {!form.brandId && form.brand && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    当前保留的旧品牌名称：{form.brand}。请在上方选择对应品牌以关联（建议）。
+                  </p>
                 )}
               </div>
 
@@ -1264,7 +1337,7 @@ export default function EditProduct() {
               </div>
             </div>
 
-            <p className="text-xs text-gray-500 mb-2">提示：按住图片行拖拽进行排序</p>
+            <p className="text-xs text-gray-500 mb-2">提示：按住图片行拖拽进行排序；支持最大 4MB 图片上传</p>
 
             <div className="space-y-4">
               {form.images.map((image, index) => (
@@ -1335,15 +1408,15 @@ export default function EditProduct() {
             </div>
           </div>
 
-          {/* 产品要点 (5点) */}
+          {/* 产品要点 (8点) */}
           <div className="bg-white p-6 rounded-xl shadow-sm border">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">产品要点 (5点描述)</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-6">产品要点 (8点描述)</h2>
             
             <div className="space-y-4">
               {form.bulletPoints.map((point, index) => (
                 <div key={index}>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    要点 {index + 1} <span className="text-xs text-gray-500">(最多500字符)</span>
+                    要点 {index + 1} {index >= 5 && <span className="text-gray-400 font-normal">(可选)</span>} <span className="text-xs text-gray-500">(最多500字符)</span>
                   </label>
                   <input
                     type="text"
@@ -1351,7 +1424,7 @@ export default function EditProduct() {
                     value={point}
                     onChange={(e) => updateBulletPoint(index, e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder={`输入第${index + 1}个产品要点`}
+                    placeholder={index >= 5 ? `(可选) 输入第${index + 1}个产品要点` : `输入第${index + 1}个产品要点`}
                   />
                   <div className="text-xs text-gray-500 mt-1">
                     {point.length}/500 字符
@@ -1372,7 +1445,7 @@ export default function EditProduct() {
                 </label>
                 <label className="cursor-pointer inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors">
                   <Upload className={`h-4 w-4 mr-2 ${descUploading ? 'animate-pulse' : ''}`} />
-                  {descUploading ? '上传中...' : '插入图片'}
+                  {descUploading ? '上传中...' : '插入图片 (Max 4MB)'}
                   <input
                     type="file"
                     accept="image/*"
