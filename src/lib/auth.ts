@@ -20,7 +20,7 @@ export async function ensureDefaultAdmin() {
   if (!existing) {
     const { hash, salt } = hashPassword('dage168')
     await db.adminUser.create({
-      data: { username: 'admin', passwordHash: hash, passwordSalt: salt }
+      data: { username: 'admin66', passwordHash: hash, passwordSalt: salt }
     })
   }
 }
