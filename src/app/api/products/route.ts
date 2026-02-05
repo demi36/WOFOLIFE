@@ -110,6 +110,8 @@ export async function POST(request: NextRequest) {
       variantImageMap,
       variantOptionImages,
       variantOptionLinks,
+      youtubeUrl,
+      youtubeIndex,
       // 新增字段：前台按钮显示控制
       showBuyOnAmazon,
       showAddToCart,
@@ -154,6 +156,18 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    const normalizedYoutubeUrl = typeof youtubeUrl === 'string' && youtubeUrl.trim() ? youtubeUrl.trim() : null
+    const normalizedYoutubeIndex = (() => {
+      if (!normalizedYoutubeUrl) return null
+      const raw = typeof youtubeIndex === 'number'
+        ? youtubeIndex
+        : typeof youtubeIndex === 'string'
+          ? parseInt(youtubeIndex, 10)
+          : NaN
+      const fallback = Math.min(1, imageList.length)
+      if (!Number.isFinite(raw)) return fallback
+      return Math.max(0, Math.min(raw, imageList.length))
+    })()
 
     // 生成唯一 slug
     const baseSlug = name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
@@ -235,6 +249,8 @@ export async function POST(request: NextRequest) {
       price: parseFloat(price),
       originalPrice: originalPrice ? parseFloat(originalPrice) : null,
       images: JSON.stringify(imageList),
+      youtubeUrl: normalizedYoutubeUrl,
+      youtubeIndex: normalizedYoutubeIndex,
       bulletPoints: JSON.stringify(Array.isArray(bulletPoints) ? bulletPoints : []),
       amazonUrl: normalizedAmazonUrl,
       // 直接使用 categoryId 赋值，与 import 接口保持一致

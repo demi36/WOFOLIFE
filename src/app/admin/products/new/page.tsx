@@ -24,6 +24,8 @@ interface ProductForm {
   images: string[]
   bulletPoints: string[]
   amazonUrl: string
+  youtubeUrl: string
+  youtubeIndex?: number | null
   categoryId: string
   featured: boolean
   inStock: boolean
@@ -53,6 +55,30 @@ function isValidAmazonUrl(url: string): boolean {
   } catch {
     return false
   }
+}
+function extractYoutubeId(value: string): string | null {
+  if (!value || typeof value !== 'string') return null
+  try {
+    const url = new URL(value)
+    const host = url.hostname.replace(/^www\./, '')
+    if (host === 'youtu.be') {
+      const id = url.pathname.split('/').filter(Boolean)[0]
+      return id || null
+    }
+    if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
+      if (url.pathname === '/watch') {
+        return url.searchParams.get('v')
+      }
+      const parts = url.pathname.split('/').filter(Boolean)
+      const embedIndex = parts.findIndex(p => p === 'embed' || p === 'shorts')
+      if (embedIndex >= 0 && parts[embedIndex + 1]) return parts[embedIndex + 1]
+    }
+  } catch {}
+  return null
+}
+function isValidYoutubeUrl(url: string): boolean {
+  if (!url || !url.trim()) return true
+  return !!extractYoutubeId(url)
 }
 
 const COMBO_KEY = '__combo__'
@@ -106,6 +132,8 @@ export default function NewProduct() {
     images: [''],
     bulletPoints: ['', '', '', '', '', '', '', ''],
     amazonUrl: '',
+    youtubeUrl: '',
+    youtubeIndex: null,
     categoryId: '',
     featured: false,
     inStock: true,
@@ -125,6 +153,7 @@ export default function NewProduct() {
   const [catLoading, setCatLoading] = useState(true)
   const [brands, setBrands] = useState<Brand[]>([])
   const [urlError, setUrlError] = useState<string>('')
+  const [youtubeUrlError, setYoutubeUrlError] = useState<string>('')
   // 上传状态：按索引标记（简化处理）
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
@@ -319,8 +348,18 @@ export default function NewProduct() {
       setLoading(false)
       return
     }
+    if (!isValidYoutubeUrl(form.youtubeUrl)) {
+      setYoutubeUrlError('请输入有效的 YouTube 链接')
+      setLoading(false)
+      return
+    }
 
     try {
+      const imageList = form.images.filter(img => img.trim() !== '')
+      const safeYoutubeIndex = (() => {
+        if (typeof form.youtubeIndex !== 'number' || !Number.isFinite(form.youtubeIndex)) return null
+        return Math.max(0, Math.min(form.youtubeIndex, imageList.length))
+      })()
       const response = await fetch('/api/products', {
         method: 'POST',
         headers: {
@@ -329,9 +368,11 @@ export default function NewProduct() {
         body: JSON.stringify({
           ...form,
           amazonUrl: form.amazonUrl,
+          youtubeUrl: (form.youtubeUrl ?? '').trim() || null,
+          youtubeIndex: safeYoutubeIndex,
           price: parseFloat(form.price),
           originalPrice: form.originalPrice ? parseFloat(form.originalPrice) : null,
-          images: form.images.filter(img => img.trim() !== ''),
+          images: imageList,
           bulletPoints: Array.from({ length: 5 }, (_, i) => (form.bulletPoints[i] ?? '').trim()),
           brandId: form.brandId || null,
           brand: (form.brand ?? '').trim() || null,
@@ -1010,6 +1051,47 @@ export default function NewProduct() {
               </div>
             </div>
 
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                YouTube 播放链接 <span className="text-gray-400 font-normal">(可选)</span>
+              </label>
+              <input
+                type="url"
+                value={form.youtubeUrl}
+                onChange={(e) => {
+                  setForm(prev => ({ ...prev, youtubeUrl: e.target.value }))
+                  if (youtubeUrlError) setYoutubeUrlError('')
+                }}
+                placeholder="https://youtu.be/xxxx 或 https://www.youtube.com/watch?v=xxxx"
+                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${youtubeUrlError ? 'border-red-500' : 'border-gray-300'}`}
+              />
+              {youtubeUrlError ? (
+                <p className="text-xs text-red-600 mt-1">{youtubeUrlError}</p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-1">提供后可设置插入位置</p>
+              )}
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                视频插入位置 <span className="text-gray-400 font-normal">(可选)</span>
+              </label>
+              <select
+                value={typeof form.youtubeIndex === 'number' && Number.isFinite(form.youtubeIndex) ? Math.max(0, Math.min(form.youtubeIndex, form.images.length)) : Math.min(1, form.images.length)}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10)
+                  setForm(prev => ({ ...prev, youtubeIndex: Number.isFinite(v) ? v : null }))
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                {Array.from({ length: Math.max(1, form.images.length) + 1 }, (_, i) => (
+                  <option key={i} value={i}>
+                    第 {i + 1} 位
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">第 1 位表示最前面，最后一位表示图片列表末尾</p>
+            </div>
+
             <p className="text-xs text-gray-500 mb-2">提示：按住图片行拖拽进行排序；支持最大 4MB 图片上传</p>
 
             <div className="space-y-4">
@@ -1114,7 +1196,7 @@ export default function NewProduct() {
             <div className="mb-6">
               <div className="flex justify-between items-center mb-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  详细描述 * <span className="text-xs text-gray-500">(最多3000字符，支持HTML)</span>
+                  详细描述 * <span className="text-xs text-gray-500">(最多3000字符，支持HTML，视频插入：直接粘贴 YouTube 链接即可)</span>
                 </label>
                 <label className="cursor-pointer inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors">
                   <Upload className={`h-4 w-4 mr-2 ${descUploading ? 'animate-pulse' : ''}`} />
