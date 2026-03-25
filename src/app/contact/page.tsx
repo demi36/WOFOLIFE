@@ -113,7 +113,7 @@ export default function ContactPage() {
               Send us a Message
             </h2>
             <p className="mt-6 text-lg leading-8 text-gray-600">
-              Fill out the form below and we'll get back to you as soon as possible.
+              Need help or want to register your warranty? Fill out the form below and we’ll be in touch shortly.
             </p>
           </div>
 
